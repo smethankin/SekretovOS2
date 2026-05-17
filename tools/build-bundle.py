@@ -17,20 +17,49 @@ FILES = [
 ]
 
 DECODER = r'''
+local computer = require("computer")
 local b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+local yieldEvery = 128
+local yieldTick = 0
+
+local function yieldStep()
+  yieldTick = yieldTick + 1
+  if yieldTick >= yieldEvery then
+    yieldTick = 0
+    os.sleep(0)
+  end
+end
+
 local function dec(data)
   data = data:gsub("[^" .. b64 .. "=]", "")
-  return (data:gsub(".", function(x)
-    if x == "=" then return "" end
-    local r, f = "", (b64:find(x, 1, true) - 1)
-    for i = 6, 1, -1 do r = r .. (f % 2^i - f % 2^(i-1) > 0 and "1" or "0") end
-    return r
-  end):gsub("%d%d%d?%d?%d?%d?%d?%d?", function(x)
-    if #x ~= 8 then return "" end
-    local c = 0
-    for i = 1, 8 do c = c + (x:sub(i,i) == "1" and 2^(8-i) or 0) end
-    return string.char(c)
-  end))
+  local out, batch = {}, {}
+  local len, pos = #data, 1
+  while pos <= len do
+    yieldStep()
+    local c1, c2, c3, c4 = data:byte(pos, pos + 3)
+    pos = pos + 4
+    if not c1 then break end
+    c2, c3, c4 = c2 or 0, c3 or 0, c4 or 0
+    local n1 = (b64:find(string.char(c1), 1, true) or 1) - 1
+    local n2 = c2 > 0 and ((b64:find(string.char(c2), 1, true) or 1) - 1) or 0
+    local n3 = c3 > 0 and ((b64:find(string.char(c3), 1, true) or 1) - 1) or 0
+    local n4 = c4 > 0 and ((b64:find(string.char(c4), 1, true) or 1) - 1) or 0
+    local n = n1 * 262144 + n2 * 4096 + n3 * 64 + n4
+    batch[#batch + 1] = string.char(math.floor(n / 65536) % 256)
+    if c3 > 0 or (c4 == 0 and c2 > 0) then
+      batch[#batch + 1] = string.char(math.floor(n / 256) % 256)
+    end
+    if c4 > 0 then
+      batch[#batch + 1] = string.char(n % 256)
+    end
+    if #batch >= 512 then
+      out[#out + 1] = table.concat(batch)
+      batch = {}
+      os.sleep(0)
+    end
+  end
+  if #batch > 0 then out[#out + 1] = table.concat(batch) end
+  return table.concat(out)
 end
 '''
 
@@ -52,8 +81,12 @@ for rel in FILES:
 
 lines.extend([
     "}",
-    "local FILES = {}",
-    "for k, v in pairs(FILES_B64) do FILES[k] = dec(v) end",
+    "local ORDER = {",
+])
+for rel in FILES:
+    lines.append(f'  "{rel}",')
+lines.extend([
+    "}",
     "local function log(m) print('[SekretovOS] ' .. tostring(m)) end",
     "local function ensureDir(p)",
     "  if not filesystem.exists(p) then filesystem.makeDirectory(p) end",
@@ -66,20 +99,31 @@ lines.extend([
     "  ensureDir(INSTALL_DIR .. '/config')",
     "  ensureDir(INSTALL_DIR .. '/logs')",
     "  ensureDir(INSTALL_DIR .. '/temp')",
-    "  local n = 0",
-    "  for path, content in pairs(FILES) do",
-    "    n = n + 1",
+    "  local n = #ORDER",
+    "  for i, path in ipairs(ORDER) do",
+    "    local b64data = FILES_B64[path]",
+    "    if not b64data then log('Missing: ' .. path) return false end",
+    "  log(('  [%d/%d] %s'):format(i, n, path))",
+    "    os.sleep(0)",
+    "    local content = dec(b64data)",
+    "    os.sleep(0)",
     "    local dest = filesystem.concat(INSTALL_DIR, path)",
     "    local dir = filesystem.path(dest)",
     "    if dir and dir ~= '' then ensureDir(dir) end",
     "    local h = filesystem.open(dest, 'w')",
-    "    if not h then log('FAIL: ' .. path) return false end",
+    "    if not h then log('FAIL write: ' .. path) return false end",
     "    h:write(content)",
     "    h:close()",
-    "    log(('  [%d] %s'):format(n, path))",
+    "    content = nil",
+    "    b64data = nil",
+    "    os.sleep(0)",
+    "    collectgarbage('collect')",
     "  end",
-    "  log('Done. Starting SekretovOS...')",
-    "  if RUN_AFTER then shell.execute(INSTALL_DIR .. '/main') end",
+    "  log('Install complete.')",
+    "  if RUN_AFTER then",
+    "    log('Run: ' .. INSTALL_DIR .. '/main')",
+    "    os.sleep(0.2)",
+    "  end",
     "end",
     "install()",
 ])

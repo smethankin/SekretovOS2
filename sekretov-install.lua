@@ -3,20 +3,49 @@ local INSTALL_DIR = '/SekretovOS'
 local RUN_AFTER = true
 local filesystem = require('filesystem')
 local shell = require('shell')
+local computer = require("computer")
 local b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+local yieldEvery = 128
+local yieldTick = 0
+
+local function yieldStep()
+  yieldTick = yieldTick + 1
+  if yieldTick >= yieldEvery then
+    yieldTick = 0
+    os.sleep(0)
+  end
+end
+
 local function dec(data)
   data = data:gsub("[^" .. b64 .. "=]", "")
-  return (data:gsub(".", function(x)
-    if x == "=" then return "" end
-    local r, f = "", (b64:find(x, 1, true) - 1)
-    for i = 6, 1, -1 do r = r .. (f % 2^i - f % 2^(i-1) > 0 and "1" or "0") end
-    return r
-  end):gsub("%d%d%d?%d?%d?%d?%d?%d?", function(x)
-    if #x ~= 8 then return "" end
-    local c = 0
-    for i = 1, 8 do c = c + (x:sub(i,i) == "1" and 2^(8-i) or 0) end
-    return string.char(c)
-  end))
+  local out, batch = {}, {}
+  local len, pos = #data, 1
+  while pos <= len do
+    yieldStep()
+    local c1, c2, c3, c4 = data:byte(pos, pos + 3)
+    pos = pos + 4
+    if not c1 then break end
+    c2, c3, c4 = c2 or 0, c3 or 0, c4 or 0
+    local n1 = (b64:find(string.char(c1), 1, true) or 1) - 1
+    local n2 = c2 > 0 and ((b64:find(string.char(c2), 1, true) or 1) - 1) or 0
+    local n3 = c3 > 0 and ((b64:find(string.char(c3), 1, true) or 1) - 1) or 0
+    local n4 = c4 > 0 and ((b64:find(string.char(c4), 1, true) or 1) - 1) or 0
+    local n = n1 * 262144 + n2 * 4096 + n3 * 64 + n4
+    batch[#batch + 1] = string.char(math.floor(n / 65536) % 256)
+    if c3 > 0 or (c4 == 0 and c2 > 0) then
+      batch[#batch + 1] = string.char(math.floor(n / 256) % 256)
+    end
+    if c4 > 0 then
+      batch[#batch + 1] = string.char(n % 256)
+    end
+    if #batch >= 512 then
+      out[#out + 1] = table.concat(batch)
+      batch = {}
+      os.sleep(0)
+    end
+  end
+  if #batch > 0 then out[#out + 1] = table.concat(batch) end
+  return table.concat(out)
 end
 local FILES_B64 = {
   ["main.lua"] = "LS1bWw0KICBTZWtyZXRvdk9TIOKAlCBNYWluIEVudHJ5IFBvaW50DQogIEluZHVzdHJpYWwgU0NBREEtc3R5bGUgT1MgZm9yIE9wZW5Db21wdXRlcnMNCg0KICBJbnN0YWxsOiBjb3B5IGZvbGRlciB0byBjb21wdXRlciByb290LCBydW46IG1haW4NCl1dDQoNCmxvY2FsIGZpbGVzeXN0ZW0gPSByZXF1aXJlKCJmaWxlc3lzdGVtIikNCmxvY2FsIHNoZWxsID0gcmVxdWlyZSgic2hlbGwiKQ0KDQotLSBSZXNvbHZlIGluc3RhbGwgcGF0aA0KbG9jYWwgbWFpblBhdGggPSBzaGVsbC5nZXRSdW5uaW5nUHJvZ3JhbSgpIG9yICJtYWluLmx1YSINCmxvY2FsIGJhc2VQYXRoID0gZmlsZXN5c3RlbS5wYXRoKGZpbGVzeXN0ZW0uY2Fub25pY2FsKG1haW5QYXRoKSkNCg0KLS0gUHJlcGVuZCB0byBwYWNrYWdlLnBhdGggZm9yIG1vZHVsZSBsb2FkaW5nDQpwYWNrYWdlLnBhdGggPSBiYXNlUGF0aCAuLiAiLz8ubHVhOyIgLi4gYmFzZVBhdGggLi4gIi8/L2luaXQubHVhOyIgLi4gcGFja2FnZS5wYXRoDQoNCmxvY2FsIGtlcm5lbCA9IGRvZmlsZShmaWxlc3lzdGVtLmNvbmNhdChiYXNlUGF0aCwgInN5c3RlbS9rZXJuZWwubHVhIikpDQprZXJuZWwuYmFzZVBhdGggPSBiYXNlUGF0aA0KDQotLSBCb290IGtlcm5lbA0Ka2VybmVsLmJvb3QoYmFzZVBhdGgpDQoNCmxvY2FsIHNlcnZpY2VzID0ga2VybmVsLm1vZHVsZXMuc2VydmljZXMNCmxvY2FsIGd1aSA9IGtlcm5lbC5tb2R1bGVzLmd1aQ0KbG9jYWwgZGVza3RvcCA9IGRvZmlsZShmaWxlc3lzdGVtLmNvbmNhdChiYXNlUGF0aCwgInN5c3RlbS9kZXNrdG9wLmx1YSIpKQ0Ka2VybmVsLnNldERlc2t0b3AoZGVza3RvcCkNCg0KLS0gTG9hZCBhcHBsaWNhdGlvbnMNCmxvY2FsIGFwcElkcyA9IHsNCiAgImVuZXJneSIsICJhZTIiLCAicmVhY3RvciIsICJsb2dzIiwgInNldHRpbmdzIiwgImZpbGVzIiwgInRlcm1pbmFsIiwNCn0NCg0KZm9yIF8sIGlkIGluIGlwYWlycyhhcHBJZHMpIGRvDQogIGxvY2FsIHBhdGggPSBmaWxlc3lzdGVtLmNvbmNhdChiYXNlUGF0aCwgImFwcHMiLCBpZCAuLiAiLmx1YSIpDQogIGlmIGZpbGVzeXN0ZW0uZXhpc3RzKHBhdGgpIHRoZW4NCiAgICBsb2NhbCBmbiA9IGxvYWRmaWxlKHBhdGgsICJidCIsIHNldG1ldGF0YWJsZSh7DQogICAgICBfT1MgPSB7DQogICAgICAgIGtlcm5lbCA9IGtlcm5lbCwNCiAgICAgICAgZ3VpID0gZ3VpLA0KICAgICAgICByZW5kZXIgPSBrZXJuZWwubW9kdWxlcy5yZW5kZXIsDQogICAgICAgIHRoZW1lID0ga2VybmVsLm1vZHVsZXMudGhlbWUsDQogICAgICAgIHNlcnZpY2VzID0gc2VydmljZXMsDQogICAgICAgIHdtID0ga2VybmVsLm1vZHVsZXMud20sDQogICAgICAgIGJhc2VQYXRoID0gYmFzZVBhdGgsDQogICAgICB9LA0KICAgIH0sIHsgX19pbmRleCA9IF9HIH0pKQ0KICAgIGlmIGZuIHRoZW4NCiAgICAgIGxvY2FsIGFwcCA9IGZuKCkNCiAgICAgIGlmIGFwcCB0aGVuDQogICAgICAgIGRlc2t0b3AucmVnaXN0ZXJBcHAoYXBwKQ0KICAgICAgICBzZXJ2aWNlcy5kZWJ1ZygibWFpbiIsICJMb2FkZWQgYXBwOiAiIC4uIGlkKQ0KICAgICAgZW5kDQogICAgZW5kDQogIGVuZA0KZW5kDQoNCnNlcnZpY2VzLmluZm8oIm1haW4iLCAiU2VrcmV0b3ZPUyByZWFkeSDigJQgTCBsYXVuY2hlciwgY2xvY2sgY2xpY2ssIEN0cmwrQyBleGl0IikNCmd1aS5ub3RpZnkoIlNla3JldG92T1MiLCAiU3lzdGVtIG9ubGluZSIsICJzdWNjZXNzIikNCg0KLS0gUnVuIG1haW4gbG9vcA0Ka2VybmVsLnJ1bigpDQo=",
@@ -37,8 +66,25 @@ local FILES_B64 = {
   ["apps/terminal.lua"] = "LS1bWyBUZXJtaW5hbCDigJQgc2hlbGwtbGlrZSBpbnRlcmZhY2UgXV0NCg0KbG9jYWwgX09TID0gX09TDQpsb2NhbCBndWksIHNlcnZpY2VzLCByZW5kZXIsIHRoZW1lID0gX09TLmd1aSwgX09TLnNlcnZpY2VzLCBfT1MucmVuZGVyLCBfT1MudGhlbWUNCmxvY2FsIGNvbXB1dGVyID0gcmVxdWlyZSgiY29tcHV0ZXIiKQ0KDQpsb2NhbCBmdW5jdGlvbiBjcmVhdGVXaW5kb3coKQ0KICBsb2NhbCB3aW4gPSBndWkud2luZG93KHsNCiAgICB0aXRsZSA9ICJURVJNSU5BTCIsDQogICAgeCA9IDcsIHkgPSA1LA0KICAgIHcgPSBtYXRoLm1pbig1NCwgcmVuZGVyLndpZHRoIC0gNiksDQogICAgaCA9IG1hdGgubWluKDE0LCByZW5kZXIuaGVpZ2h0IC0gNiksDQogICAgY2xvc2FibGUgPSB0cnVlLA0KICAgIGRyYWdnYWJsZSA9IHRydWUsDQogIH0pDQoNCiAgd2luLmxpbmVzID0geyAiU2VrcmV0b3ZPUyBUZXJtaW5hbCB2MS4wIiwgIlR5cGUgJ2hlbHAnIGZvciBjb21tYW5kcy4iIH0NCiAgd2luLmlucHV0ID0gIiINCiAgd2luLnNjcm9sbCA9IDANCiAgd2luLm1heExpbmVzID0gMTAwDQoNCiAgbG9jYWwgY29tbWFuZHMgPSB7DQogICAgaGVscCA9IGZ1bmN0aW9uKCkNCiAgICAgIHJldHVybiAiQ29tbWFuZHM6IGhlbHAsIGNsZWFyLCBlY2hvLCB1cHRpbWUsIHZlciwgZGF0ZSINCiAgICBlbmQsDQogICAgY2xlYXIgPSBmdW5jdGlvbigpDQogICAgICB3aW4ubGluZXMgPSB7fQ0KICAgICAgcmV0dXJuIG5pbA0KICAgIGVuZCwNCiAgICBlY2hvID0gZnVuY3Rpb24oYXJncykNCiAgICAgIHJldHVybiB0YWJsZS5jb25jYXQoYXJncywgIiAiKQ0KICAgIGVuZCwNCiAgICB1cHRpbWUgPSBmdW5jdGlvbigpDQogICAgICByZXR1cm4gKCJVcHRpbWU6ICUuMWZzIik6Zm9ybWF0KGNvbXB1dGVyLnVwdGltZSgpKQ0KICAgIGVuZCwNCiAgICB2ZXIgPSBmdW5jdGlvbigpDQogICAgICByZXR1cm4gIlNla3JldG92T1MgMS4wLjAgSW5kdXN0cmlhbCBFZGl0aW9uIg0KICAgIGVuZCwNCiAgICBkYXRlID0gZnVuY3Rpb24oKQ0KICAgICAgcmV0dXJuIG9zLmRhdGUoIiVZLSVtLSVkICVIOiVNOiVTIikNCiAgICBlbmQsDQogIH0NCg0KICBsb2NhbCBmdW5jdGlvbiBleGVjKGxpbmUpDQogICAgbG9jYWwgcGFydHMgPSB7fQ0KICAgIGZvciB3b3JkIGluIGxpbmU6Z21hdGNoKCIlUysiKSBkbyBwYXJ0c1sjcGFydHMgKyAxXSA9IHdvcmQgZW5kDQogICAgaWYgI3BhcnRzID09IDAgdGhlbiByZXR1cm4gZW5kDQogICAgbG9jYWwgY21kID0gcGFydHNbMV06bG93ZXIoKQ0KICAgIHRhYmxlLnJlbW92ZShwYXJ0cywgMSkNCiAgICBsb2NhbCBmbiA9IGNvbW1hbmRzW2NtZF0NCiAgICBpZiBmbiB0aGVuDQogICAgICBsb2NhbCByZXN1bHQgPSBmbihwYXJ0cykNCiAgICAgIGlmIHJlc3VsdCB0aGVuIHdpbi5saW5lc1sjd2luLmxpbmVzICsgMV0gPSByZXN1bHQgZW5kDQogICAgZWxzZQ0KICAgICAgd2luLmxpbmVzWyN3aW4ubGluZXMgKyAxXSA9ICJVbmtub3duIGNvbW1hbmQ6ICIgLi4gY21kDQogICAgZW5kDQogIGVuZA0KDQogIHdpbi5vbkRyYXcgPSBmdW5jdGlvbihheCwgYXksIHd3LCB3aCkNCiAgICBsb2NhbCB0aCA9IHRoZW1lLmN1cnJlbnQNCiAgICBsb2NhbCB2aXNpYmxlID0gd2ggLSAzDQogICAgbG9jYWwgc3RhcnQgPSBtYXRoLm1heCgxLCAjd2luLmxpbmVzIC0gdmlzaWJsZSAtIHdpbi5zY3JvbGwgKyAxKQ0KICAgIGxvY2FsIHkgPSBheQ0KICAgIGZvciBpID0gc3RhcnQsICN3aW4ubGluZXMgZG8NCiAgICAgIGlmIHkgPj0gYXkgKyB3aCAtIDMgdGhlbiBicmVhayBlbmQNCiAgICAgIHJlbmRlci5kcmF3VGV4dChheCArIDIsIHksIHdpbi5saW5lc1tpXTpzdWIoMSwgd3cgLSA0KSwgdGgudGV4dCwgdGgucGFuZWwpDQogICAgICB5ID0geSArIDENCiAgICBlbmQNCiAgICBsb2NhbCBwcm9tcHQgPSAiPiAiIC4uIHdpbi5pbnB1dA0KICAgIHJlbmRlci5kcmF3VGV4dChheCArIDIsIGF5ICsgd2ggLSAyLCBwcm9tcHQ6c3ViKDEsIHd3IC0gNCksIHRoLmFjY2VudCwgdGgucGFuZWwpDQogIGVuZA0KDQogIHdpbi5vbkV2ZW50ID0gZnVuY3Rpb24oZXZ0KQ0KICAgIGlmIGV2dC50eXBlIH49ICJrZXlfZG93biIgdGhlbiByZXR1cm4gZmFsc2UgZW5kDQogICAgbG9jYWwgYyA9IGV2dC5jaGFyDQogICAgaWYgYyA9PSAiXHIiIG9yIGMgPT0gIlxuIiB0aGVuDQogICAgICB3aW4ubGluZXNbI3dpbi5saW5lcyArIDFdID0gIj4gIiAuLiB3aW4uaW5wdXQNCiAgICAgIGV4ZWMod2luLmlucHV0KQ0KICAgICAgd2luLmlucHV0ID0gIiINCiAgICAgIGlmICN3aW4ubGluZXMgPiB3aW4ubWF4TGluZXMgdGhlbg0KICAgICAgICB0YWJsZS5yZW1vdmUod2luLmxpbmVzLCAxKQ0KICAgICAgZW5kDQogICAgICByZXR1cm4gdHJ1ZQ0KICAgIGVsc2VpZiBjID09ICJcYiIgdGhlbg0KICAgICAgd2luLmlucHV0ID0gd2luLmlucHV0OnN1YigxLCAtMikNCiAgICAgIHJldHVybiB0cnVlDQogICAgZWxzZWlmIGMgYW5kICNjID09IDEgYW5kIGMgPj0gIiAiIHRoZW4NCiAgICAgIGlmICN3aW4uaW5wdXQgPCA2MCB0aGVuDQogICAgICAgIHdpbi5pbnB1dCA9IHdpbi5pbnB1dCAuLiBjDQogICAgICBlbmQNCiAgICAgIHJldHVybiB0cnVlDQogICAgZW5kDQogICAgcmV0dXJuIGZhbHNlDQogIGVuZA0KDQogIHJldHVybiB3aW4NCmVuZA0KDQpyZXR1cm4gew0KICBpZCA9ICJ0ZXJtaW5hbCIsDQogIG5hbWUgPSAiVGVybWluYWwiLA0KICBpY29uID0gIlRFUk0iLA0KICBjcmVhdGVXaW5kb3cgPSBjcmVhdGVXaW5kb3csDQp9DQo=",
   ["config/settings.cfg"] = "dGhlbWU9aW5kdXN0cmlhbA0K",
 }
-local FILES = {}
-for k, v in pairs(FILES_B64) do FILES[k] = dec(v) end
+local ORDER = {
+  "main.lua",
+  "system/kernel.lua",
+  "system/render.lua",
+  "system/gui.lua",
+  "system/window.lua",
+  "system/desktop.lua",
+  "system/events.lua",
+  "system/theme.lua",
+  "system/services.lua",
+  "apps/energy.lua",
+  "apps/ae2.lua",
+  "apps/reactor.lua",
+  "apps/logs.lua",
+  "apps/settings.lua",
+  "apps/files.lua",
+  "apps/terminal.lua",
+  "config/settings.cfg",
+}
 local function log(m) print('[SekretovOS] ' .. tostring(m)) end
 local function ensureDir(p)
   if not filesystem.exists(p) then filesystem.makeDirectory(p) end
@@ -51,19 +97,30 @@ local function install()
   ensureDir(INSTALL_DIR .. '/config')
   ensureDir(INSTALL_DIR .. '/logs')
   ensureDir(INSTALL_DIR .. '/temp')
-  local n = 0
-  for path, content in pairs(FILES) do
-    n = n + 1
+  local n = #ORDER
+  for i, path in ipairs(ORDER) do
+    local b64data = FILES_B64[path]
+    if not b64data then log('Missing: ' .. path) return false end
+  log(('  [%d/%d] %s'):format(i, n, path))
+    os.sleep(0)
+    local content = dec(b64data)
+    os.sleep(0)
     local dest = filesystem.concat(INSTALL_DIR, path)
     local dir = filesystem.path(dest)
     if dir and dir ~= '' then ensureDir(dir) end
     local h = filesystem.open(dest, 'w')
-    if not h then log('FAIL: ' .. path) return false end
+    if not h then log('FAIL write: ' .. path) return false end
     h:write(content)
     h:close()
-    log(('  [%d] %s'):format(n, path))
+    content = nil
+    b64data = nil
+    os.sleep(0)
+    collectgarbage('collect')
   end
-  log('Done. Starting SekretovOS...')
-  if RUN_AFTER then shell.execute(INSTALL_DIR .. '/main') end
+  log('Install complete.')
+  if RUN_AFTER then
+    log('Run: ' .. INSTALL_DIR .. '/main')
+    os.sleep(0.2)
+  end
 end
 install()

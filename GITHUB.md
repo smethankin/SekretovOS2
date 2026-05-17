@@ -1,6 +1,7 @@
 # SekretovOS на GitHub
 
-Репозиторий: https://github.com/smethankin/SekretovOS
+Репозиторий: https://github.com/smethankin/SekretovOS22  
+(старый https://github.com/smethankin/SekretovOS2 — пустой)
 
 ## 1. Залить файлы (репозиторий сейчас пустой)
 
@@ -20,7 +21,7 @@ git init
 git add .
 git commit -m "Initial SekretovOS"
 git branch -M main
-git remote add origin https://github.com/smethankin/SekretovOS.git
+git remote add origin https://github.com/smethankin/SekretovOS2.git
 git push -u origin main
 ```
 
@@ -33,13 +34,13 @@ git push -u origin main
 Установщик:
 
 ```
-https://raw.githubusercontent.com/smethankin/SekretovOS/main/sekretov-install.lua
+https://raw.githubusercontent.com/smethankin/SekretovOS22/main/sekretov-install.lua
 ```
 
 Запуск OS без установщика (если залита вся папка):
 
 ```
-https://raw.githubusercontent.com/smethankin/SekretovOS/main/main.lua
+https://raw.githubusercontent.com/smethankin/SekretovOS2/main/main.lua
 ```
 
 ---
@@ -49,7 +50,7 @@ https://raw.githubusercontent.com/smethankin/SekretovOS/main/main.lua
 **wget:**
 
 ```lua
-wget -O sekretov https://raw.githubusercontent.com/smethankin/SekretovOS/main/sekretov-install.lua
+wget -O sekretov https://raw.githubusercontent.com/smethankin/SekretovOS22/main/sekretov-install.lua
 sekretov
 ```
 
@@ -57,7 +58,7 @@ sekretov
 
 ```lua
 local internet = require("internet")
-local url = "https://raw.githubusercontent.com/smethankin/SekretovOS/main/sekretov-install.lua"
+local url = "https://raw.githubusercontent.com/smethankin/SekretovOS22/main/sekretov-install.lua"
 local f = io.open("sekretov", "w")
 for c in internet.request(url, 15, {["User-Agent"]="Mozilla/5.0"}) do f:write(c) end
 f:close()
